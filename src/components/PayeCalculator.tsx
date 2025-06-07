@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Calculator, TrendingDown, TrendingUp, FileText, Eye, EyeOff } from 'lucide-react';
+import { Calculator, TrendingDown, TrendingUp, FileText, Eye, EyeOff, Zap, X, Plus } from 'lucide-react';
 
 // Legacy tax brackets (pre-2024 reform)
 const legacyBrackets = [
@@ -55,6 +55,13 @@ interface AdditionalDeductions {
     pension: string;
     nhf: string;
     insurance: string;
+}
+
+interface Scenario {
+    id: string;
+    label: string;
+    monthlyGross: number;
+    results: Results;
 }
 
 function calculatePAYE(monthlyGross: number, brackets: typeof legacyBrackets, isReform = false, additionalDeductions: AdditionalDeductions = { pension: '', nhf: '', insurance: '' }): CalculationResult {
@@ -128,11 +135,32 @@ function calculatePAYE(monthlyGross: number, brackets: typeof legacyBrackets, is
     };
 }
 
+function calculateResults(monthlyAmount: number, additionalDeductions: AdditionalDeductions): Results {
+    const legacyResult = calculatePAYE(monthlyAmount, legacyBrackets, false, additionalDeductions);
+    const reformResult = calculatePAYE(monthlyAmount, reformBrackets, true, additionalDeductions);
+
+    const monthlySavings = legacyResult.monthlyPAYE - reformResult.monthlyPAYE;
+    const annualSavings = legacyResult.annualPAYE - reformResult.annualPAYE;
+    const savingsPercentage = legacyResult.annualPAYE > 0 ? (annualSavings / legacyResult.annualPAYE) * 100 : 0;
+
+    return {
+        legacy: legacyResult,
+        reform: reformResult,
+        savings: {
+            monthly: monthlySavings,
+            annual: annualSavings,
+            percentage: savingsPercentage,
+        },
+        monthlyGross: monthlyAmount,
+    };
+}
+
 function formatCurrency(amount: number): string {
     return new Intl.NumberFormat('en-NG', {
         style: 'currency',
         currency: 'NGN',
-        minimumFractionDigits: 2,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
     }).format(amount);
 }
 
@@ -143,6 +171,9 @@ export default function PayeCalculator() {
     const [inputType, setInputType] = useState<'monthly' | 'annual'>('monthly');
     const [results, setResults] = useState<Results | null>(null);
     const [showBreakdown, setShowBreakdown] = useState<boolean>(false);
+    const [showScenarios, setShowScenarios] = useState<boolean>(false);
+    const [scenarios, setScenarios] = useState<Scenario[]>([]);
+    const [customScenario, setCustomScenario] = useState({ label: '', amount: '', type: 'percentage' as 'percentage' | 'fixed' });
     const [additionalDeductions, setAdditionalDeductions] = useState<AdditionalDeductions>({
         pension: '',
         nhf: '',
@@ -157,23 +188,8 @@ export default function PayeCalculator() {
         }
 
         if (!isNaN(monthlyAmount) && monthlyAmount >= 0) {
-            const legacyResult = calculatePAYE(monthlyAmount, legacyBrackets, false, additionalDeductions);
-            const reformResult = calculatePAYE(monthlyAmount, reformBrackets, true, additionalDeductions);
-
-            const monthlySavings = legacyResult.monthlyPAYE - reformResult.monthlyPAYE;
-            const annualSavings = legacyResult.annualPAYE - reformResult.annualPAYE;
-            const savingsPercentage = legacyResult.annualPAYE > 0 ? (annualSavings / legacyResult.annualPAYE) * 100 : 0;
-
-            setResults({
-                legacy: legacyResult,
-                reform: reformResult,
-                savings: {
-                    monthly: monthlySavings,
-                    annual: annualSavings,
-                    percentage: savingsPercentage,
-                },
-                monthlyGross: monthlyAmount,
-            });
+            const calculatedResults = calculateResults(monthlyAmount, additionalDeductions);
+            setResults(calculatedResults);
         }
     };
 
@@ -181,7 +197,74 @@ export default function PayeCalculator() {
         setMonthlyGross('');
         setResults(null);
         setShowBreakdown(false);
+        setShowScenarios(false);
+        setScenarios([]);
     };
+
+    const addQuickScenario = (label: string, changePercent: number, fixedAmount?: number) => {
+        if (!results) return;
+
+        let newMonthlyGross: number;
+        if (fixedAmount) {
+            newMonthlyGross = results.monthlyGross + fixedAmount;
+        } else {
+            newMonthlyGross = results.monthlyGross * (1 + changePercent / 100);
+        }
+
+        const scenarioResults = calculateResults(newMonthlyGross, additionalDeductions);
+        const newScenario: Scenario = {
+            id: Date.now().toString(),
+            label,
+            monthlyGross: newMonthlyGross,
+            results: scenarioResults
+        };
+
+        setScenarios(prev => [...prev, newScenario]);
+    };
+
+    const addCustomScenario = () => {
+        if (!results || !customScenario.label || !customScenario.amount) return;
+
+        const amount = parseFloat(customScenario.amount);
+        if (isNaN(amount)) return;
+
+        let newMonthlyGross: number;
+        if (customScenario.type === 'percentage') {
+            newMonthlyGross = results.monthlyGross * (1 + amount / 100);
+        } else {
+            newMonthlyGross = results.monthlyGross + amount;
+        }
+
+        const scenarioResults = calculateResults(newMonthlyGross, additionalDeductions);
+        const newScenario: Scenario = {
+            id: Date.now().toString(),
+            label: customScenario.label,
+            monthlyGross: newMonthlyGross,
+            results: scenarioResults
+        };
+
+        setScenarios(prev => [...prev, newScenario]);
+        setCustomScenario({ label: '', amount: '', type: 'percentage' });
+    };
+
+    const removeScenario = (id: string) => {
+        setScenarios(prev => prev.filter(s => s.id !== id));
+    };
+
+    const chartData = scenarios.length > 0 ? [
+        {
+            name: 'Current',
+            legacyTax: results?.legacy.monthlyPAYE || 0,
+            reformTax: results?.reform.monthlyPAYE || 0,
+            netPay: results?.reform.netMonthlyPay || 0,
+        },
+        ...scenarios.map(scenario => ({
+            name: scenario.label.length > 15 ? scenario.label.substring(0, 15) + '...' : scenario.label,
+            legacyTax: scenario.results.legacy.monthlyPAYE,
+            reformTax: scenario.results.reform.monthlyPAYE,
+            netPay: scenario.results.reform.netMonthlyPay,
+        }))
+    ] : [];
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50">
@@ -196,7 +279,6 @@ export default function PayeCalculator() {
                             Nigerian PAYE Calculator
                         </h1>
                     </div>
-
                 </div>
 
                 {/* Input Section */}
@@ -292,10 +374,10 @@ export default function PayeCalculator() {
                         </div>
                     </div>
 
-                    <div className="flex gap-4">
+                    <div className="flex gap-4 flex-wrap">
                         <button
                             onClick={handleCalculate}
-                            className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-4 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 min-w-[200px] bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-4 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled={!monthlyGross}
                         >
                             Calculate Tax
@@ -307,13 +389,22 @@ export default function PayeCalculator() {
                             Clear
                         </button>
                         {results && (
-                            <button
-                                onClick={() => setShowBreakdown(!showBreakdown)}
-                                className="flex items-center gap-2 px-6 py-4 bg-green-100 hover:bg-green-200 text-green-700 rounded-xl font-medium transition-all duration-200"
-                            >
-                                {showBreakdown ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                {showBreakdown ? 'Hide' : 'Show'} Details
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => setShowBreakdown(!showBreakdown)}
+                                    className="flex items-center gap-2 px-6 py-4 bg-green-100 hover:bg-green-200 text-green-700 rounded-xl font-medium transition-all duration-200"
+                                >
+                                    {showBreakdown ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    {showBreakdown ? 'Hide' : 'Show'} Details
+                                </button>
+                                <button
+                                    onClick={() => setShowScenarios(!showScenarios)}
+                                    className="flex items-center gap-2 px-6 py-4 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl font-medium transition-all duration-200"
+                                >
+                                    <Zap className="w-4 h-4" />
+                                    What-If Scenarios
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -433,230 +524,268 @@ export default function PayeCalculator() {
                             )}
                         </div>
 
-                        {/* Tax Brackets Comparison */}
-                        <div className="grid lg:grid-cols-2 gap-6 mb-8">
-                            {/* Legacy Brackets */}
-                            <div className="bg-white rounded-xl shadow-lg p-6">
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                    Legacy Tax Brackets
-                                </h3>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="border-b border-gray-200">
-                                                <th className="text-left py-3 px-2 font-medium">Annual Income Range</th>
-                                                <th className="text-left py-3 px-2 font-medium">Rate</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {legacyBrackets.map((bracket, index) => {
-                                                const prevLimit = index === 0 ? 0 : legacyBrackets[index - 1].limit;
-                                                const isInfinite = bracket.limit === Infinity;
-                                                return (
-                                                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                                                        <td className="py-3 px-2">
-                                                            {formatCurrency(prevLimit)} - {isInfinite ? 'Above' : formatCurrency(bracket.limit)}
-                                                        </td>
-                                                        <td className="py-3 px-2">
-                                                            <span className="inline-block px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                                                                {(bracket.rate * 100).toFixed(0)}%
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
+                        {/* What-If Scenarios */}
+                        {showScenarios && (
+                            <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 mb-8">
+                                <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
+                                    <Zap className="w-5 h-5" />
+                                    What-If Scenarios
+                                </h2>
 
-                            {/* Reform Brackets */}
-                            <div className="bg-white rounded-xl shadow-lg p-6">
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                    2024 Reform Tax Brackets
-                                </h3>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="border-b border-gray-200">
-                                                <th className="text-left py-3 px-2 font-medium">Annual Income Range</th>
-                                                <th className="text-left py-3 px-2 font-medium">Rate</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {reformBrackets.map((bracket, index) => {
-                                                const prevLimit = index === 0 ? 0 : reformBrackets[index - 1].limit;
-                                                const isInfinite = bracket.limit === Infinity;
-                                                return (
-                                                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                                                        <td className="py-3 px-2">
-                                                            {formatCurrency(prevLimit)} - {isInfinite ? 'Above' : formatCurrency(bracket.limit)}
-                                                        </td>
-                                                        <td className="py-3 px-2">
-                                                            <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${bracket.rate === 0
-                                                                ? 'bg-green-100 text-green-700'
-                                                                : 'bg-blue-100 text-blue-700'
-                                                                }`}>
-                                                                {(bracket.rate * 100).toFixed(0)}%
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Detailed Breakdown */}
-                        {showBreakdown && (
-                            <>
-                                <div className="grid lg:grid-cols-2 gap-6 mb-8">
-                                    {/* Legacy Breakdown */}
-                                    <div className="bg-white rounded-xl shadow-lg p-6">
-                                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                            Legacy System - Tax Calculation Breakdown
-                                        </h3>
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm">
-                                                <thead>
-                                                    <tr className="border-b border-gray-200">
-                                                        <th className="text-left py-2 px-3">Income Range</th>
-                                                        <th className="text-left py-2 px-3">Rate</th>
-                                                        <th className="text-right py-2 px-3">Taxable Amount</th>
-                                                        <th className="text-right py-2 px-3">Tax</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {results.legacy.bracketBreakdown.map((bracket, index) => (
-                                                        <tr key={index} className="border-b border-gray-100">
-                                                            <td className="py-2 px-3 text-xs">{bracket.range}</td>
-                                                            <td className="py-2 px-3">{bracket.rate}</td>
-                                                            <td className="py-2 px-3 text-right">{formatCurrency(bracket.taxableAmount)}</td>
-                                                            <td className="py-2 px-3 text-right font-medium">{formatCurrency(bracket.tax)}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                {/* Quick Scenario Buttons */}
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-medium text-gray-900 mb-3">Quick Scenarios</h3>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        <button
+                                            onClick={() => addQuickScenario('+10% Raise', 10)}
+                                            className="px-4 py-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-all duration-200"
+                                        >
+                                            +10% Raise
+                                        </button>
+                                        <button
+                                            onClick={() => addQuickScenario('+20% Raise', 20)}
+                                            className="px-4 py-3 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg font-medium transition-all duration-200"
+                                        >
+                                            +20% Raise
+                                        </button>
+                                        <button
+                                            onClick={() => addQuickScenario('-10% Pay Cut', -10)}
+                                            className="px-4 py-3 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-all duration-200"
+                                        >
+                                            -10% Pay Cut
+                                        </button>
+                                        <button
+                                            onClick={() => addQuickScenario('+₦100k Bonus', 0, 100000)}
+                                            className="px-4 py-3 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg font-medium transition-all duration-200"
+                                        >
+                                            +₦100k Bonus
+                                        </button>
                                     </div>
+                                </div>
 
-                                    {/* Reform Breakdown */}
-                                    <div className="bg-white rounded-xl shadow-lg p-6">
-                                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                            2024 Reform - Tax Calculation Breakdown
-                                        </h3>
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm">
-                                                <thead>
-                                                    <tr className="border-b border-gray-200">
-                                                        <th className="text-left py-2 px-3">Income Range</th>
-                                                        <th className="text-left py-2 px-3">Rate</th>
-                                                        <th className="text-right py-2 px-3">Taxable Amount</th>
-                                                        <th className="text-right py-2 px-3">Tax</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {results.reform.bracketBreakdown.map((bracket, index) => (
-                                                        <tr key={index} className="border-b border-gray-100">
-                                                            <td className="py-2 px-3 text-xs">{bracket.range}</td>
-                                                            <td className="py-2 px-3">{bracket.rate}</td>
-                                                            <td className="py-2 px-3 text-right">{formatCurrency(bracket.taxableAmount)}</td>
-                                                            <td className="py-2 px-3 text-right font-medium">{formatCurrency(bracket.tax)}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
+                                {/* Custom Scenario */}
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-medium text-gray-900 mb-3">Custom Scenario</h3>
+                                    <div className="grid md:grid-cols-4 gap-4">
+                                        <div>
+                                            <input
+                                                type="text"
+                                                placeholder="Scenario label"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                value={customScenario.label}
+                                                onChange={(e) => setCustomScenario(prev => ({ ...prev, label: e.target.value }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="number"
+                                                placeholder="Amount"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                value={customScenario.amount}
+                                                onChange={(e) => setCustomScenario(prev => ({ ...prev, amount: e.target.value }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <select
+                                                value={customScenario.type}
+                                                onChange={(e) => setCustomScenario(prev => ({ ...prev, type: e.target.value as 'percentage' | 'fixed' }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                                <option value="percentage">Percentage Change</option>
+                                                <option value="fixed">Fixed Amount</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <button
+                                                onClick={addCustomScenario}
+                                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-all duration-200"
+                                                disabled={!customScenario.label || !customScenario.amount}
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                                Add Scenario
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Charts */}
-                                <div className="grid lg:grid-cols-2 gap-6 mb-8">
-                                    <div className="bg-white rounded-xl shadow-lg p-6">
-                                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Tax & Net Pay Comparison</h3>
-                                        <ResponsiveContainer width="100%" height={300}>
-                                            <BarChart data={[
-                                                { name: 'Legacy System', tax: results.legacy.monthlyPAYE, net: results.legacy.netMonthlyPay },
-                                                { name: '2024 Reform', tax: results.reform.monthlyPAYE, net: results.reform.netMonthlyPay }
-                                            ]} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                                                <YAxis tick={{ fontSize: 12 }} />
-                                                <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                                {/* Scenarios List */}
+                                {scenarios.length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className="text-lg font-medium text-gray-900 mb-3">Active Scenarios</h3>
+                                        <div className="space-y-3">
+                                            {scenarios.map((scenario) => (
+                                                <div key={scenario.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="font-medium text-gray-900">{scenario.label}</span>
+                                                            <span className="text-sm text-gray-600">
+                                                                {formatCurrency(scenario.monthlyGross)}/month
+                                                            </span>
+                                                            <span className={`text-sm font-medium ${scenario.results.savings.monthly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                                {scenario.results.savings.monthly >= 0 ? 'Saves' : 'Costs'} {formatCurrency(Math.abs(scenario.results.savings.monthly))}/month
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => removeScenario(scenario.id)}
+                                                        className="p-2 text-gray-400 hover:text-red-600 transition-colors duration-200"
+                                                    >
+                                                        <X className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Scenarios Chart */}
+                                {chartData.length > 1 && (
+                                    <div className="bg-white p-6 rounded-lg border border-gray-200">
+                                        <h3 className="text-lg font-medium text-gray-900 mb-4">Scenario Comparison</h3>
+                                        <ResponsiveContainer width="100%" height={400}>
+                                            <BarChart data={chartData}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis dataKey="name" />
+                                                <YAxis tickFormatter={(value) => `₦${(value / 1000).toFixed(0)}k`} />
+                                                <Tooltip formatter={(value, name) => [formatCurrency(Number(value)), name]} />
                                                 <Legend />
-                                                <Bar dataKey="tax" fill="#ef4444" name="Monthly Tax" radius={[4, 4, 0, 0]} />
-                                                <Bar dataKey="net" fill="#10b981" name="Net Pay" radius={[4, 4, 0, 0]} />
+                                                <Bar dataKey="legacyTax" fill="#ef4444" name="Legacy Tax" />
+                                                <Bar dataKey="reformTax" fill="#10b981" name="Reform Tax" />
+                                                <Bar dataKey="netPay" fill="#3b82f6" name="Net Pay" />
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
-
-                                    <div className="bg-white rounded-xl shadow-lg p-6">
-                                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Income Breakdown (2024 Reform)</h3>
-                                        <ResponsiveContainer width="100%" height={300}>
-                                            <PieChart>
-                                                <Pie
-                                                    data={[
-                                                        { name: 'Net Pay', value: results.reform.netMonthlyPay, fill: COLORS[0] },
-                                                        { name: 'PAYE Tax', value: results.reform.monthlyPAYE, fill: COLORS[1] },
-                                                        { name: 'Other Deductions', value: Math.max(0, results.monthlyGross - results.reform.netMonthlyPay - results.reform.monthlyPAYE), fill: COLORS[2] }
-                                                    ].filter(item => item.value > 0)}
-                                                    cx="50%"
-                                                    cy="50%"
-                                                    outerRadius={100}
-                                                    dataKey="value"
-                                                    label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(1)}%`}
-                                                    labelLine={false}
-                                                >
-                                                    {[
-                                                        { name: 'Net Pay', value: results.reform.netMonthlyPay, fill: COLORS[0] },
-                                                        { name: 'PAYE Tax', value: results.reform.monthlyPAYE, fill: COLORS[1] },
-                                                        { name: 'Other Deductions', value: Math.max(0, results.monthlyGross - results.reform.netMonthlyPay - results.reform.monthlyPAYE), fill: COLORS[2] }
-                                                    ].filter(item => item.value > 0).map((entry, index) => (
-                                                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                                                    ))}
-                                                </Pie>
-                                                <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                                            </PieChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-
-                                {/* Additional Info */}
-                                <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                                    <h3 className="text-lg font-semibold text-blue-900 mb-3">📋 Key Differences</h3>
-                                    <div className="grid md:grid-cols-2 gap-6">
-                                        <div>
-                                            <h4 className="font-medium text-blue-800 mb-2">Legacy System</h4>
-                                            <ul className="text-sm text-blue-700 space-y-1">
-                                                <li>• Minimum annual exemption: ₦300,000</li>
-                                                <li>• Maximum tax rate: 24%</li>
-                                                <li>• 20% gross income allowance</li>
-                                                <li>• Higher tax burden on middle income</li>
-                                            </ul>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-medium text-blue-800 mb-2">2024 Reform</h4>
-                                            <ul className="text-sm text-blue-700 space-y-1">
-                                                <li>• Tax-free threshold: ₦800,000 annually</li>
-                                                <li>• Maximum tax rate: 25%</li>
-                                                <li>• Simplified allowance structure</li>
-                                                <li>• Relief for low to middle income earners</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
+                                )}
+                            </div>
                         )}
+
+                        {/* Detailed Breakdown */}
+                        {showBreakdown && results && (
+                            <div className="grid lg:grid-cols-2 gap-6 mb-8">
+                                {/* Legacy Breakdown */}
+                                <div className="bg-white rounded-xl shadow-lg p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Legacy System Breakdown</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-700">Gross Annual Income:</span>
+                                            <span className="font-medium">{formatCurrency(results.monthlyGross * 12)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-700">Total Allowances:</span>
+                                            <span className="font-medium">{formatCurrency(results.legacy.totalAllowances)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-700">Taxable Income:</span>
+                                            <span className="font-medium">{formatCurrency(results.legacy.taxableIncome)}</span>
+                                        </div>
+                                        <div className="border-t pt-3">
+                                            <h4 className="font-medium text-gray-900 mb-2">Tax by Bracket:</h4>
+                                            {results.legacy.bracketBreakdown.map((bracket, index) => (
+                                                <div key={index} className="flex justify-between text-sm mb-1">
+                                                    <span className="text-gray-600">{bracket.range} ({bracket.rate}):</span>
+                                                    <span className="font-medium">{formatCurrency(bracket.tax)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Reform Breakdown */}
+                                <div className="bg-white rounded-xl shadow-lg p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Reform System Breakdown</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-700">Gross Annual Income:</span>
+                                            <span className="font-medium">{formatCurrency(results.monthlyGross * 12)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-700">Total Allowances:</span>
+                                            <span className="font-medium">{formatCurrency(results.reform.totalAllowances)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-700">Taxable Income:</span>
+                                            <span className="font-medium">{formatCurrency(results.reform.taxableIncome)}</span>
+                                        </div>
+                                        <div className="border-t pt-3">
+                                            <h4 className="font-medium text-gray-900 mb-2">Tax by Bracket:</h4>
+                                            {results.reform.bracketBreakdown.map((bracket, index) => (
+                                                <div key={index} className="flex justify-between text-sm mb-1">
+                                                    <span className="text-gray-600">{bracket.range} ({bracket.rate}):</span>
+                                                    <span className="font-medium">{formatCurrency(bracket.tax)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tax Distribution Pie Chart */}
+
+                        <div className="grid lg:grid-cols-2 gap-6 mb-8">
+                            <div className="bg-white rounded-xl shadow-lg p-6">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">Tax & Net Pay Comparison</h3>
+                                <ResponsiveContainer width="100%" height={300}>
+                                    <BarChart data={[
+                                        { name: 'Legacy System', tax: results.legacy.monthlyPAYE, net: results.legacy.netMonthlyPay },
+                                        { name: '2024 Reform', tax: results.reform.monthlyPAYE, net: results.reform.netMonthlyPay }
+                                    ]} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                                        <YAxis tick={{ fontSize: 12 }} />
+                                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                                        <Legend />
+                                        <Bar dataKey="tax" fill="#ef4444" name="Monthly Tax" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="net" fill="#10b981" name="Net Pay" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+
+                            <div className="bg-white rounded-xl shadow-lg p-6">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Income Breakdown (2024 Reform)</h3>
+                                <ResponsiveContainer width="100%" height={300}>
+                                    <PieChart>
+                                        <Pie
+                                            data={[
+                                                { name: 'Net Pay', value: results.reform.netMonthlyPay, fill: COLORS[0] },
+                                                { name: 'PAYE Tax', value: results.reform.monthlyPAYE, fill: COLORS[1] },
+                                                { name: 'Other Deductions', value: Math.max(0, results.monthlyGross - results.reform.netMonthlyPay - results.reform.monthlyPAYE), fill: COLORS[2] }
+                                            ].filter(item => item.value > 0)}
+                                            cx="50%"
+                                            cy="50%"
+                                            outerRadius={100}
+                                            dataKey="value"
+                                            label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(1)}%`}
+                                            labelLine={false}
+                                        >
+                                            {[
+                                                { name: 'Net Pay', value: results.reform.netMonthlyPay, fill: COLORS[0] },
+                                                { name: 'PAYE Tax', value: results.reform.monthlyPAYE, fill: COLORS[1] },
+                                                { name: 'Other Deductions', value: Math.max(0, results.monthlyGross - results.reform.netMonthlyPay - results.reform.monthlyPAYE), fill: COLORS[2] }
+                                            ].filter(item => item.value > 0).map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.fill} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+
+                        {/* Important Notes */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                            <h3 className="text-lg font-semibold text-blue-900 mb-3">Important Notes</h3>
+                            <ul className="space-y-2 text-sm text-blue-800">
+                                <li>• The 2024 tax reform is pending presidential assent and may be subject to changes</li>
+                                <li>• Calculations are based on publicly available information and may not reflect all tax nuances</li>
+                                <li>• Additional deductions like pension contributions, NHF, and life insurance premiums can reduce your taxable income</li>
+                                <li>• The reform introduces a tax-free threshold of ₦800,000 annually (approximately ₦66,667 monthly)</li>
+                                <li>• Consult with a tax professional for personalized advice and accurate calculations</li>
+                            </ul>
+                        </div>
                     </>
                 )}
-
-                {/* Footer */}
-                <div className="text-center mt-12 text-sm text-gray-500">
-                    <p>This calculator is for estimation purposes only. Actual tax calculations may vary based on specific circumstances.</p>
-                    <p className="mt-1">The 2024 tax reform is pending presidential assent as of June 2025.</p>
-                </div>
             </div>
         </div>
     );
