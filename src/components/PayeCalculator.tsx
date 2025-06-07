@@ -12,7 +12,7 @@ const legacyBrackets = [
     { limit: Infinity, rate: 0.24 },
 ];
 
-// New tax brackets (2024 reform - pending presidential assent)
+// New tax brackets (2024 reform)
 const reformBrackets = [
     { limit: 800_000, rate: 0 },
     { limit: 3_000_000, rate: 0.15 },
@@ -196,12 +196,7 @@ export default function PayeCalculator() {
                             Nigerian PAYE Calculator
                         </h1>
                     </div>
-                    <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                        Compare tax calculations between legacy system and the new 2024 tax reform
-                        <span className="inline-block ml-1 px-2 py-1 bg-yellow-100 text-yellow-800 text-sm rounded-full">
-                            Pending Presidential Assent
-                        </span>
-                    </p>
+
                 </div>
 
                 {/* Input Section */}
@@ -499,8 +494,8 @@ export default function PayeCalculator() {
                                                         </td>
                                                         <td className="py-3 px-2">
                                                             <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${bracket.rate === 0
-                                                                    ? 'bg-green-100 text-green-700'
-                                                                    : 'bg-blue-100 text-blue-700'
+                                                                ? 'bg-green-100 text-green-700'
+                                                                : 'bg-blue-100 text-blue-700'
                                                                 }`}>
                                                                 {(bracket.rate * 100).toFixed(0)}%
                                                             </span>
