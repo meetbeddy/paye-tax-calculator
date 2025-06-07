@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Calculator } from 'lucide-react';
 import { WhatIfScenarios } from './WhatIfScenarios';
 import { SalaryInputSection } from './SalaryInputSection';
 import { ResultsComparison } from './ResultDisplay';
 import { SavingsSummary } from './SavingsSummary';
 import type { AdditionalDeductions, Results, Scenario } from '../types';
-import { calculateResults, formatCurrency } from '../utils';
-import { CHART_COLORS } from '../constants';
+import { calculateResults, } from '../utils';
+import { DetailedBreakdown } from './BreakDown';
+import { TaxCharts } from './TaxCharts';
 
 
 export default function PayeCalculator() {
@@ -143,115 +143,11 @@ export default function PayeCalculator() {
 
                         {/* Detailed Breakdown */}
                         {showBreakdown && results && (
-                            <div className="grid lg:grid-cols-2 gap-6 mb-8">
-                                {/* Legacy Breakdown */}
-                                <div className="bg-white rounded-xl shadow-lg p-6">
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Legacy System Breakdown</h3>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-700">Gross Annual Income:</span>
-                                            <span className="font-medium">{formatCurrency(results.monthlyGross * 12)}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-700">Total Allowances:</span>
-                                            <span className="font-medium">{formatCurrency(results.legacy.totalAllowances)}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-700">Taxable Income:</span>
-                                            <span className="font-medium">{formatCurrency(results.legacy.taxableIncome)}</span>
-                                        </div>
-                                        <div className="border-t pt-3">
-                                            <h4 className="font-medium text-gray-900 mb-2">Tax by Bracket:</h4>
-                                            {results.legacy.bracketBreakdown.map((bracket, index) => (
-                                                <div key={index} className="flex justify-between text-sm mb-1">
-                                                    <span className="text-gray-600">{bracket.range} ({bracket.rate}):</span>
-                                                    <span className="font-medium">{formatCurrency(bracket.tax)}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Reform Breakdown */}
-                                <div className="bg-white rounded-xl shadow-lg p-6">
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Reform System Breakdown</h3>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-700">Gross Annual Income:</span>
-                                            <span className="font-medium">{formatCurrency(results.monthlyGross * 12)}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-700">Total Allowances:</span>
-                                            <span className="font-medium">{formatCurrency(results.reform.totalAllowances)}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-700">Taxable Income:</span>
-                                            <span className="font-medium">{formatCurrency(results.reform.taxableIncome)}</span>
-                                        </div>
-                                        <div className="border-t pt-3">
-                                            <h4 className="font-medium text-gray-900 mb-2">Tax by Bracket:</h4>
-                                            {results.reform.bracketBreakdown.map((bracket, index) => (
-                                                <div key={index} className="flex justify-between text-sm mb-1">
-                                                    <span className="text-gray-600">{bracket.range} ({bracket.rate}):</span>
-                                                    <span className="font-medium">{formatCurrency(bracket.tax)}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <DetailedBreakdown results={results} />
                         )}
 
                         {/* Tax Distribution Pie Chart */}
-                        <div className="grid lg:grid-cols-2 gap-6 mb-8">
-                            <div className="bg-white rounded-xl shadow-lg p-6">
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4">Tax & Net Pay Comparison</h3>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <BarChart data={[
-                                        { name: 'Legacy System', tax: results.legacy.monthlyPAYE, net: results.legacy.netMonthlyPay },
-                                        { name: '2024 Reform', tax: results.reform.monthlyPAYE, net: results.reform.netMonthlyPay }
-                                    ]} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                                        <YAxis tick={{ fontSize: 12 }} />
-                                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                                        <Legend />
-                                        <Bar dataKey="tax" fill="#ef4444" name="Monthly Tax" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="net" fill="#10b981" name="Net Pay" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-
-                            <div className="bg-white rounded-xl shadow-lg p-6">
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Income Breakdown (2024 Reform)</h3>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <PieChart>
-                                        <Pie
-                                            data={[
-                                                { name: 'Net Pay', value: results.reform.netMonthlyPay, fill: CHART_COLORS[0] },
-                                                { name: 'PAYE Tax', value: results.reform.monthlyPAYE, fill: CHART_COLORS[1] },
-                                                { name: 'Other Deductions', value: Math.max(0, results.monthlyGross - results.reform.netMonthlyPay - results.reform.monthlyPAYE), fill: CHART_COLORS[2] }
-                                            ].filter(item => item.value > 0)}
-                                            cx="50%"
-                                            cy="50%"
-                                            outerRadius={100}
-                                            dataKey="value"
-                                            label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(1)}%`}
-                                            labelLine={false}
-                                        >
-                                            {[
-                                                { name: 'Net Pay', value: results.reform.netMonthlyPay, fill: CHART_COLORS[0] },
-                                                { name: 'PAYE Tax', value: results.reform.monthlyPAYE, fill: CHART_COLORS[1] },
-                                                { name: 'Other Deductions', value: Math.max(0, results.monthlyGross - results.reform.netMonthlyPay - results.reform.monthlyPAYE), fill: CHART_COLORS[2] }
-                                            ].filter(item => item.value > 0).map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={entry.fill} />
-                                            ))}
-                                        </Pie>
-                                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
+                        <TaxCharts results={results} />
 
                         {/* Important Notes */}
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
