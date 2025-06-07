@@ -44,3 +44,21 @@ export interface Scenario {
 	monthlyGross: number;
 	results: Results;
 }
+
+export interface Employee {
+	id: string;
+	name: string;
+	email: string;
+	department: string;
+	monthlyGross: number;
+	additionalDeductions: AdditionalDeductions;
+	results: Results;
+}
+
+export interface HistoryEntry {
+	id: string;
+	date: string;
+	monthlyGross: number;
+	results: Results;
+	label?: string;
+}
